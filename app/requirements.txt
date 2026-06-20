@@ -1,0 +1,5 @@
+neo4j==5.28.1
+numpy==2.2.6
+pyvis==0.3.2
+requests==2.32.4
+streamlit==1.45.1
