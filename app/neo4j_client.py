@@ -63,6 +63,13 @@ class Neo4jClient:
             **document,
         )
         for chunk in chunks:
+            chunk_params = {
+                "document_id": document["id"],
+                "id": chunk["id"],
+                "text": chunk["text"],
+                "chunk_index": chunk["chunk_index"],
+                "embedding": chunk["embedding"],
+            }
             tx.run(
                 """
                 MATCH (d:Document {id: $document_id})
@@ -72,8 +79,7 @@ class Neo4jClient:
                     c.embedding = $embedding
                 MERGE (d)-[:HAS_CHUNK]->(c)
                 """,
-                document_id=document["id"],
-                **chunk,
+                **chunk_params,
             )
             for entity in chunk.get("entities", []):
                 tx.run(

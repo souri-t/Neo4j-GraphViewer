@@ -1,0 +1,22 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Local Docker bind-mounted data
+data/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*~
