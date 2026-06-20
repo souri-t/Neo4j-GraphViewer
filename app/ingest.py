@@ -1,101 +1,97 @@
 import hashlib
-import math
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List
 
-import numpy as np
-
-from neo4j_client import Neo4jClient
+from chroma_client import ChromaClient
 from ollama_client import OllamaClient
 
 
 SUPPORTED_EXTENSIONS = {".txt", ".md"}
-DEFAULT_CHUNK_SIZE = 900
-DEFAULT_CHUNK_OVERLAP = 140
+DEFAULT_CHUNK_SEPARATOR = "\n\n"
+DEFAULT_CHUNK_SEPARATOR_DISPLAY = "\\n\\n"
+DEFAULT_CHUNK_SIZE = 500
+DEFAULT_CHUNK_OVERLAP = 100
+MAX_CHUNK_SIZE = 4000
 
 
 @dataclass
 class IngestStats:
     documents: int
     chunks: int
-    chunk_similarity_edges: int
-    document_similarity_edges: int
 
 
 def ingest_docs(
     docs_dir: str | Path | None = None,
-    reset: bool = True,
+    reset: bool = False,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
-    similar_top_k: int = 4,
-    similarity_threshold: float = 0.74,
+    chunk_separator: str = DEFAULT_CHUNK_SEPARATOR,
+    separator_is_regex: bool = False,
 ) -> IngestStats:
     docs_path = Path(docs_dir or os.getenv("DOCS_DIR", "/app/docs"))
     files = list_document_files(docs_path)
     if not files:
-        raise FileNotFoundError(f"No supported documents found under {docs_path}. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}")
+        raise FileNotFoundError(f"No .txt or .md documents found under {docs_path}")
 
     ollama = OllamaClient()
-    neo4j = Neo4jClient()
-    neo4j.verify()
+    chroma = ChromaClient()
+    chroma.verify()
 
     if reset:
-        neo4j.clear_graph()
+        chroma.reset_collection()
 
-    all_chunks: list[dict] = []
-    documents: list[dict] = []
+    documents = 0
+    chunks_written = 0
 
     for path in files:
         text = read_text(path)
         if not text.strip():
             continue
+
         relative_path = str(path.relative_to(docs_path))
         document_id = stable_id(relative_path)
         title = derive_title(path, text)
-        document = {"id": document_id, "title": title, "path": relative_path, "text": text}
-        raw_chunks = chunk_text(text, chunk_size=chunk_size, overlap=chunk_overlap)
+        raw_chunks = chunk_text(
+            text,
+            chunk_size=chunk_size,
+            overlap=chunk_overlap,
+            separator=chunk_separator,
+            separator_is_regex=separator_is_regex,
+        )
         embeddings = ollama.embed_many(raw_chunks)
         if len(embeddings) != len(raw_chunks):
             raise RuntimeError(
                 f"Ollama returned {len(embeddings)} embeddings for {len(raw_chunks)} chunks in {relative_path}"
             )
 
-        if embeddings and not all_chunks:
-            neo4j.init_schema(len(embeddings[0]))
-
         chunks = []
         for index, (chunk, embedding) in enumerate(zip(raw_chunks, embeddings)):
-            chunk_id = stable_id(f"{relative_path}:{index}:{chunk[:80]}")
-            chunk_record = {
-                "id": chunk_id,
-                "document_id": document_id,
-                "document_title": title,
-                "text": chunk,
-                "chunk_index": index,
-                "embedding": embedding,
-                "entities": extract_entities(chunk),
-            }
-            chunks.append(chunk_record)
-            all_chunks.append(chunk_record)
+            chunks.append(
+                {
+                    "id": stable_id(f"{relative_path}:{index}"),
+                    "document": chunk,
+                    "embedding": embedding,
+                    "metadata": {
+                        "document_id": document_id,
+                        "title": title,
+                        "path": relative_path,
+                        "chunk_index": index,
+                        "source_type": path.suffix.lower().lstrip("."),
+                        "chunk_separator": chunk_separator,
+                        "chunk_separator_is_regex": separator_is_regex,
+                        "chunk_size": chunk_size,
+                        "chunk_overlap": chunk_overlap,
+                    },
+                }
+            )
 
-        neo4j.upsert_document(document, chunks)
-        documents.append(document)
+        chroma.upsert_chunks(chunks)
+        documents += 1
+        chunks_written += len(chunks)
 
-    chunk_pairs = build_chunk_similarity_pairs(all_chunks, top_k=similar_top_k, threshold=similarity_threshold)
-    neo4j.create_chunk_similarities(chunk_pairs)
-
-    document_pairs = build_document_similarity_pairs(all_chunks, threshold=similarity_threshold)
-    neo4j.create_document_similarities(document_pairs)
-
-    return IngestStats(
-        documents=len(documents),
-        chunks=len(all_chunks),
-        chunk_similarity_edges=len(chunk_pairs),
-        document_similarity_edges=len(document_pairs),
-    )
+    return IngestStats(documents=documents, chunks=chunks_written)
 
 
 def list_document_files(docs_path: Path) -> list[Path]:
@@ -114,26 +110,36 @@ def derive_title(path: Path, text: str) -> str:
     return path.stem.replace("_", " ").replace("-", " ").title()
 
 
-def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> list[str]:
-    normalized = re.sub(r"\n{3,}", "\n\n", text.strip())
-    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n", normalized) if paragraph.strip()]
+def chunk_text(
+    text: str,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overlap: int = DEFAULT_CHUNK_OVERLAP,
+    separator: str = DEFAULT_CHUNK_SEPARATOR,
+    separator_is_regex: bool = False,
+) -> list[str]:
+    validate_chunk_settings(chunk_size, overlap, separator)
+    normalized = text.strip()
+    units = split_by_separator(normalized, separator=separator, separator_is_regex=separator_is_regex)
     chunks: list[str] = []
     current = ""
 
-    for paragraph in paragraphs:
-        if len(paragraph) > chunk_size:
+    for unit in units:
+        if len(unit) > chunk_size:
             if current:
                 chunks.append(current.strip())
                 current = ""
-            chunks.extend(split_long_text(paragraph, chunk_size, overlap))
+            chunks.extend(split_long_text(unit, chunk_size, overlap))
             continue
 
-        candidate = f"{current}\n\n{paragraph}".strip() if current else paragraph
+        candidate = f"{current}{unit}" if current else unit
         if len(candidate) <= chunk_size:
             current = candidate
         else:
             chunks.append(current.strip())
-            current = paragraph
+            current = apply_overlap(current, overlap) + unit
+            if len(current) > chunk_size:
+                chunks.extend(split_long_text(current, chunk_size, overlap))
+                current = ""
 
     if current:
         chunks.append(current.strip())
@@ -153,91 +159,69 @@ def split_long_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return chunks
 
 
-def extract_entities(text: str) -> list[dict[str, str]]:
-    candidates: set[str] = set()
-    candidates.update(re.findall(r"(?m)^#{1,6}\s+(.+)$", text))
-    candidates.update(re.findall(r"[A-Z][A-Za-z0-9']+(?:\s+[A-Z][A-Za-z0-9']+){1,4}", text))
-    candidates.update(re.findall(r"[「『](.{2,30}?)[」』]", text))
-    candidates.update(re.findall(r"\b[一-龥ァ-ン]{3,12}\b", text))
+def split_by_separator(text: str, separator: str, separator_is_regex: bool) -> list[str]:
+    if separator_is_regex:
+        try:
+            pattern = re.compile(separator)
+        except re.error as exc:
+            raise ValueError(f"Invalid chunk separator regex: {exc}") from exc
+        if pattern.match("") is not None:
+            raise ValueError("Chunk separator regex must not match an empty string")
+        return split_by_regex(text, pattern)
 
-    entities = []
-    for candidate in candidates:
-        name = re.sub(r"\s+", " ", candidate).strip(" -:：、。,.()[]")
-        if not name or len(name) > 60:
+    actual_separator = decode_separator(separator)
+    parts = text.split(actual_separator)
+    units = []
+    for index, part in enumerate(parts):
+        if not part.strip():
             continue
-        if len(name) < 2:
-            continue
-        entity_type = "Topic"
-        if re.search(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+", name):
-            entity_type = "NamedEntity"
-        elif re.search(r"[一-龥]", name):
-            entity_type = "JapaneseTerm"
-        entities.append({"name": name, "type": entity_type})
-    return sorted(entities, key=lambda item: item["name"])[:12]
+        suffix = actual_separator if index < len(parts) - 1 else ""
+        units.append(f"{part}{suffix}")
+    return units
 
 
-def build_chunk_similarity_pairs(chunks: list[dict], top_k: int, threshold: float) -> list[dict]:
-    if len(chunks) < 2:
-        return []
-    matrix = normalize_embeddings([chunk["embedding"] for chunk in chunks])
-    scores = matrix @ matrix.T
-    pairs: list[dict] = []
-
-    for i, source in enumerate(chunks):
-        order = np.argsort(scores[i])[::-1]
-        selected = 0
-        for j in order:
-            if i == j:
-                continue
-            if source["document_id"] == chunks[j]["document_id"]:
-                continue
-            score = float(scores[i, j])
-            if score < threshold:
-                continue
-            source_id, target_id = sorted([source["id"], chunks[j]["id"]])
-            pair_key = (source_id, target_id)
-            if any(existing["source_id"] == pair_key[0] and existing["target_id"] == pair_key[1] for existing in pairs):
-                continue
-            pairs.append({"source_id": source_id, "target_id": target_id, "score": score})
-            selected += 1
-            if selected >= top_k:
-                break
-    return pairs
+def split_by_regex(text: str, pattern: re.Pattern[str]) -> list[str]:
+    units = []
+    start = 0
+    for match in pattern.finditer(text):
+        end = match.end()
+        unit = text[start:end]
+        if unit.strip():
+            units.append(unit)
+        start = end
+    tail = text[start:]
+    if tail.strip():
+        units.append(tail)
+    return units
 
 
-def build_document_similarity_pairs(chunks: list[dict], threshold: float) -> list[dict]:
-    by_doc: Dict[str, list[np.ndarray]] = {}
-    for chunk in chunks:
-        by_doc.setdefault(chunk["document_id"], []).append(np.array(chunk["embedding"], dtype=np.float32))
-    doc_vectors = {
-        doc_id: np.mean(np.stack(vectors), axis=0)
-        for doc_id, vectors in by_doc.items()
-        if vectors
-    }
-    rows = list(doc_vectors.items())
-    pairs: list[dict] = []
-    for i in range(len(rows)):
-        for j in range(i + 1, len(rows)):
-            left_id, left_vector = rows[i]
-            right_id, right_vector = rows[j]
-            score = cosine(left_vector, right_vector)
-            if score >= threshold:
-                pairs.append({"source_id": left_id, "target_id": right_id, "score": score})
-    return pairs
+def validate_chunk_settings(chunk_size: int, overlap: int, separator: str) -> None:
+    if chunk_size < 1 or chunk_size > MAX_CHUNK_SIZE:
+        raise ValueError(f"Chunk size must be between 1 and {MAX_CHUNK_SIZE} characters")
+    if overlap < 0:
+        raise ValueError("Chunk overlap must be 0 or greater")
+    if overlap >= chunk_size:
+        raise ValueError("Chunk overlap must be smaller than chunk size")
+    if not separator:
+        raise ValueError("Chunk separator must not be empty")
 
 
-def normalize_embeddings(embeddings: Iterable[Iterable[float]]) -> np.ndarray:
-    matrix = np.array(list(embeddings), dtype=np.float32)
-    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    return matrix / norms
+def decode_separator(separator: str) -> str:
+    decoded = (
+        separator.replace("\\r\\n", "\r\n")
+        .replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\\r", "\r")
+    )
+    if not decoded:
+        raise ValueError("Chunk separator must not be empty")
+    return decoded
 
 
-def cosine(left: np.ndarray, right: np.ndarray) -> float:
-    denominator = float(np.linalg.norm(left) * np.linalg.norm(right))
-    if math.isclose(denominator, 0.0):
-        return 0.0
-    return float(np.dot(left, right) / denominator)
+def apply_overlap(text: str, overlap: int) -> str:
+    if overlap <= 0:
+        return ""
+    return text[-overlap:]
 
 
 def stable_id(value: str) -> str:

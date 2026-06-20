@@ -1,8 +1,8 @@
-# Neo4j + Ollama + Streamlit 文書検索デモ
+# ChromaDB + Ollama + Streamlit 文書検索デモ
 
-Neo4j、Ollama、Streamlit を Docker Compose で起動し、`docs/` 配下の文書を Embedding 化して意味検索とグラフビューを表示するデモです。
+ChromaDB、Ollama、Streamlit を Docker Compose で起動し、`docs/` 配下の `.txt` / `.md` 文書を Embedding 化して意味検索と仮想グラフビューを表示するデモです。
 
-既存の `docs/` サンプルを使います。アプリは `.txt` に加えて、現在配置済みのサンプルをそのまま試せるよう `.md` もプレーンテキストとして読み込みます。PDF / Word は対象外です。
+グラフDBとしての永続的なリレーションは作りません。PyVis の線は検索結果の Embedding 類似度から UI 側で動的に作る一時的な仮想リンクです。
 
 ## 1. 起動方法
 
@@ -15,6 +15,12 @@ docker compose up -d --build
 ```bash
 docker compose ps
 ```
+
+アクセス先:
+
+- Streamlit: [http://localhost:8501](http://localhost:8501)
+- ChromaDB: [http://localhost:8000](http://localhost:8000)
+- Ollama: [http://localhost:11434](http://localhost:11434)
 
 ## 2. embeddinggemma の pull 方法
 
@@ -32,123 +38,108 @@ docker compose restart app
 
 ## 3. 文書取り込み方法
 
-1. Streamlit を開きます: [http://localhost:8501](http://localhost:8501)
-2. 左サイドバーの「文書を取り込む」ボタンを押します。
-3. `docs/` 配下の `.txt` / `.md` が読み込まれます。
-4. 文書、チャンク、Embedding、Chunk 間類似、Document 間類似、簡易 Entity が Neo4j に保存されます。
+1. `docs/` 配下に `.txt` または `.md` ファイルを配置します。
+2. Streamlit を開きます: [http://localhost:8501](http://localhost:8501)
+3. 左サイドバーの「チャンク設定」を必要に応じて変更します。
+4. 左サイドバーの「文書を取り込む」ボタンを押します。
+5. 文書がチャンク化され、Ollama の `embeddinggemma` で Embedding が生成されます。
+6. ChromaDB の `document_chunks` collection にチャンク本文、Embedding、メタデータが保存されます。
 
-取り込みはデモ向けに既存グラフを削除して再作成します。
+同じファイルを再取り込みしても重複しにくいよう、chunk id は `ファイルパス + chunk_index` から安定生成し、ChromaDB へ upsert します。
+チャンク設定を変えて再取り込みする場合は、古い分割結果との混在を避けるため「取り込み前にChromaDBをリセット（推奨）」をONにしてください。デフォルトはONです。
 
-## 4. 検索方法
+## 4. チャンク設定
 
-1. Streamlit の「意味検索」に検索文を入力します。
-2. 入力文を Ollama の `embeddinggemma` で Embedding 化します。
-3. Neo4j のベクトルインデックス `chunk_embedding_index` から近い `Chunk` を取得します。
-4. 結果には文書タイトル、チャンク本文、類似度スコア、文書パスが表示されます。
-5. 「詳細・グラフビュー」ページでも検索でき、検索結果を選択すると詳細と PyVis のグラフビューが表示されます。
+サイドバーで Dify 風のチャンク設定を指定できます。
 
-## 5. Neo4j Browser の開き方
+- `チャンク区切り文字`: デフォルトは `\n\n` です。空行ごとに分割します。
+- `正規表現として扱う`: ON にすると区切り文字を正規表現として扱います。
+- `最大チャンク長（文字数）`: 1チャンクに許容する最大文字数です。デフォルトは `500`、最大は `4000` です。
+- `チャンクのオーバーラップ（文字数）`: チャンク間に重複させる文字数です。Dify と同様に、チャンク長の10〜25%程度を推奨します。
 
-Neo4j Browser は以下から開けます。
+例:
 
-[http://localhost:7474](http://localhost:7474)
+- `\n\n`: 空行ごとに分割します。
+- `。`: 句点ごとに分割します。
+- 正規表現ONで `。|！|？`: 複数の文末記号で分割します。
 
-ログイン情報:
+## 5. 検索方法
 
-- Username: `neo4j`
-- Password: `password`
-- Bolt URL: `bolt://localhost:7687`
+1. メイン画面の検索ボックスに検索文を入力します。
+2. サイドバーで `TopK` を指定します。
+3. 「検索実行」ボタンを押します。
+4. 検索文を Ollama の `embeddinggemma` で Embedding 化します。
+5. ChromaDB で近いチャンクを TopK 検索します。
+6. 検索結果一覧に `title`、`path`、`chunk_index`、`distance`、`score`、チャンク本文が表示されます。
 
-確認用 Cypher:
+## 6. グラフビュー仕様
 
-```cypher
-MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)
-RETURN d.title, c.chunkIndex, left(c.text, 120) AS chunk
-LIMIT 20;
-```
-
-## 6. Streamlit 画面の開き方
-
-Streamlit は以下から開けます。
-
-[http://localhost:8501](http://localhost:8501)
+- ChromaDB にはリンクやリレーションは保存しません。
+- 検索結果 TopK のチャンクをノードとして表示します。
+- 検索結果同士の Embedding cosine 類似度をアプリ側で計算します。
+- サイドバーの「グラフ表示用の類似度閾値」以上の組み合わせだけ、PyVis の仮想エッジとして描画します。
+- ノードにはファイル名と `chunk_index` を表示します。
+- ノード詳細には `path` とチャンク本文の先頭数百文字を表示します。
+- エッジには類似度スコアを表示します。
 
 ## 全体構成
-
-このデモは Docker Compose で `neo4j`、`ollama`、`app` の3サービスを起動します。
 
 ```mermaid
 flowchart LR
     User["Browser"] --> Streamlit["app / Streamlit :8501"]
     Streamlit --> Ollama["ollama :11434\nembeddinggemma"]
-    Streamlit --> Neo4j["neo4j :7687\nBolt"]
-    Neo4j --> Browser["Neo4j Browser :7474"]
+    Streamlit --> Chroma["chromadb :8000\ncollection: document_chunks"]
     Docs["./docs\n.txt / .md"] --> Streamlit
-    Neo4jData["./data/neo4j"] --> Neo4j
+    ChromaData["./data/chromadb"] --> Chroma
     OllamaData["./data/ollama"] --> Ollama
 ```
 
-処理の流れ:
-
-1. `docs/` 配下の `.txt` / `.md` を Streamlit アプリが読み込みます。
-2. 文書をチャンク化し、Ollama の `embeddinggemma` で Embedding を生成します。
-3. `Document`、`Chunk`、`Entity`、類似関係を Neo4j に保存します。
-4. 検索時は検索文を Embedding 化し、Neo4j のベクトルインデックスで近い `Chunk` を取得します。
-5. 詳細・グラフビューでは、選択した `Chunk` を中心に `Document`、類似 `Chunk`、`Entity` を PyVis で表示します。
-
 サービス構成:
 
-- `neo4j`: グラフデータベース。`7474` で Browser、`7687` で Bolt を公開します。
+- `chromadb`: ベクトル検索用ストア。`8000` を公開します。
 - `ollama`: Embedding 生成。`11434` を公開し、`embeddinggemma` を利用します。
-- `app`: Streamlit アプリ。`8501` を公開し、文書取り込み、検索、グラフビューを提供します。
+- `app`: Streamlit アプリ。`8501` を公開し、文書取り込み、検索、仮想グラフビューを提供します。
 
 データ保存:
 
 - `./docs` は app コンテナの `/app/docs` に read-only でマウントします。
-- `./data/neo4j/data` と `./data/neo4j/logs` は Neo4j の永続データです。
+- `./data/chromadb` は ChromaDB の永続データです。
 - `./data/ollama` は Ollama のモデルと設定です。
-- Docker named volume は使用していません。
 
 ## ディレクトリ構成
 
 ```text
 .
-├─ .gitignore
 ├─ docker-compose.yml
 ├─ README.md
-├─ data/
-│  ├─ neo4j/
-│  │  ├─ data/
-│  │  └─ logs/
-│  └─ ollama/
 ├─ docs/
+│  └─ サンプル文書
 └─ app/
    ├─ Dockerfile
    ├─ requirements.txt
    ├─ main.py
-   ├─ search_page.py
-   ├─ detail_graph_page.py
-   ├─ ui_common.py
-   ├─ neo4j_client.py
+   ├─ chroma_client.py
    ├─ ollama_client.py
    ├─ ingest.py
    └─ graph_view.py
 ```
 
-アプリ内のページ:
+## ChromaDB に保存するデータ
 
-- `意味検索`: 検索文を入力し、ベクトル検索結果を一覧表示します。
-- `詳細・グラフビュー`: このページ単体でも検索でき、選択した Chunk の詳細と周辺グラフを表示します。
-
-## データモデル
-
-- `(:Document {id, title, path, text})`
-- `(:Chunk {id, text, chunkIndex, embedding})`
-- `(:Entity {name, type})`
-- `(:Document)-[:HAS_CHUNK]->(:Chunk)`
-- `(:Chunk)-[:SIMILAR {score}]->(:Chunk)`
-- `(:Document)-[:SIMILAR {score}]->(:Document)`
-- `(:Chunk)-[:MENTIONS]->(:Entity)`
+- collection: `document_chunks`
+- id: chunk の一意ID
+- document: チャンク本文
+- embedding: `embeddinggemma` で生成したベクトル
+- metadata:
+  - `document_id`
+  - `title`
+  - `path`
+  - `chunk_index`
+  - `source_type`
+  - `chunk_separator`
+  - `chunk_separator_is_regex`
+  - `chunk_size`
+  - `chunk_overlap`
 
 ## 停止方法
 
@@ -156,16 +147,8 @@ flowchart LR
 docker compose down
 ```
 
-Neo4j と Ollama のデータは named volume ではなく、ホスト側の以下に保存されます。
-
-```bash
-data/neo4j/data
-data/neo4j/logs
-data/ollama
-```
-
 データも削除する場合:
 
 ```bash
-rm -rf data
+rm -rf data/chromadb data/ollama
 ```

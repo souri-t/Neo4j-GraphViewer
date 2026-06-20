@@ -1,5 +1,6 @@
-neo4j==5.28.1
+chromadb==0.5.23
 numpy==2.2.6
+posthog<4.0.0
 pyvis==0.3.2
 requests==2.32.4
 streamlit==1.45.1
