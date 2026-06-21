@@ -40,17 +40,18 @@ docker compose restart app
 
 1. `docs/` 配下に `.txt` または `.md` ファイルを配置します。
 2. Streamlit を開きます: [http://localhost:8501](http://localhost:8501)
-3. 左サイドバーの「チャンク設定」を必要に応じて変更します。
-4. 左サイドバーの「文書を取り込む」ボタンを押します。
-5. 文書がチャンク化され、Ollama の `embeddinggemma` で Embedding が生成されます。
-6. ChromaDB の `document_chunks` collection にチャンク本文、Embedding、メタデータが保存されます。
+3. 左メニューから「文書登録」ページを開きます。
+4. 「チャンク設定」を必要に応じて変更します。
+5. 「文書を取り込む」ボタンを押します。
+6. 文書がチャンク化され、Ollama の `embeddinggemma` で Embedding が生成されます。
+7. ChromaDB の `document_chunks` collection にチャンク本文、Embedding、メタデータが保存されます。
 
 同じファイルを再取り込みしても重複しにくいよう、chunk id は `ファイルパス + chunk_index` から安定生成し、ChromaDB へ upsert します。
 チャンク設定を変えて再取り込みする場合は、古い分割結果との混在を避けるため「取り込み前にChromaDBをリセット（推奨）」をONにしてください。デフォルトはONです。
 
 ## 4. チャンク設定
 
-サイドバーで Dify 風のチャンク設定を指定できます。
+「文書登録」ページで Dify 風のチャンク設定を指定できます。
 
 - `チャンク区切り文字`: デフォルトは `\n\n` です。空行ごとに分割します。
 - `正規表現として扱う`: ON にすると区切り文字を正規表現として扱います。
@@ -66,7 +67,7 @@ docker compose restart app
 ## 5. 検索方法
 
 1. メイン画面の検索ボックスに検索文を入力します。
-2. サイドバーで `TopK` を指定します。
+2. 「検索・グラフビュー」ページで `TopK` を指定します。
 3. 「検索実行」ボタンを押します。
 4. 検索文を Ollama の `embeddinggemma` で Embedding 化します。
 5. ChromaDB で近いチャンクを TopK 検索します。
@@ -77,7 +78,7 @@ docker compose restart app
 - ChromaDB にはリンクやリレーションは保存しません。
 - 検索結果 TopK のチャンクをノードとして表示します。
 - 検索結果同士の Embedding cosine 類似度をアプリ側で計算します。
-- サイドバーの「グラフ表示用の類似度閾値」以上の組み合わせだけ、PyVis の仮想エッジとして描画します。
+- 「検索・グラフビュー」ページの「グラフ表示用の類似度閾値」以上の組み合わせだけ、PyVis の仮想エッジとして描画します。
 - ノードにはファイル名と `chunk_index` を表示します。
 - ノード詳細には `path` とチャンク本文の先頭数百文字を表示します。
 - エッジには類似度スコアを表示します。
@@ -118,6 +119,9 @@ flowchart LR
    ├─ Dockerfile
    ├─ requirements.txt
    ├─ main.py
+   ├─ search_page.py
+   ├─ registration_page.py
+   ├─ ui_common.py
    ├─ chroma_client.py
    ├─ ollama_client.py
    ├─ ingest.py
