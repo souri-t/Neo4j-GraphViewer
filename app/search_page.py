@@ -38,32 +38,43 @@ if not results:
     st.stop()
 
 st.subheader("検索結果一覧")
-labels = [
-    (
-        f"{index + 1}. {row['metadata'].get('title', 'Untitled')} / "
-        f"{row['metadata'].get('path', '')} / "
-        f"Chunk {row['metadata'].get('chunk_index', '')} / "
-        f"distance={format_number(row['distance'])}"
-    )
-    for index, row in enumerate(results)
-]
-selected_index = st.selectbox(
-    "選択チャンク",
-    range(len(results)),
-    format_func=lambda index: labels[index],
-    key="selected_index",
-)
-selected = results[selected_index]
+if st.session_state.get("selected_index", 0) >= len(results):
+    st.session_state["selected_index"] = 0
 
-for index, row in enumerate(results, start=1):
+table_rows = []
+for index, row in enumerate(results):
     metadata = row["metadata"]
-    with st.container(border=True):
-        st.markdown(f"**{index}. {metadata.get('title', 'Untitled')}**")
-        st.caption(
-            f"`{metadata.get('path', '')}` / Chunk {metadata.get('chunk_index', '')} / "
-            f"distance={format_number(row['distance'])} / score={format_number(row['score'])}"
-        )
-        st.write(row["document"])
+    table_rows.append(
+        {
+            "No": index + 1,
+            "タイトル": metadata.get("title", "Untitled"),
+            "パス": metadata.get("path", ""),
+            "Chunk": metadata.get("chunk_index", ""),
+            "distance": format_number(row["distance"]),
+        }
+    )
+
+selection = st.dataframe(
+    table_rows,
+    hide_index=True,
+    use_container_width=True,
+    height=min(320, 38 * (len(table_rows) + 1)),
+    on_select="rerun",
+    selection_mode="single-row",
+    column_config={
+        "No": st.column_config.NumberColumn(width="small"),
+        "タイトル": st.column_config.TextColumn(width="medium"),
+        "パス": st.column_config.TextColumn(width="large"),
+        "Chunk": st.column_config.NumberColumn(width="small"),
+        "distance": st.column_config.TextColumn(width="small"),
+    },
+)
+selected_rows = selection.selection.rows
+if selected_rows:
+    st.session_state["selected_index"] = selected_rows[0]
+
+selected_index = st.session_state.get("selected_index", 0)
+selected = results[selected_index]
 
 detail_col, graph_col = st.columns([1, 1.25], gap="large")
 
@@ -75,8 +86,7 @@ with detail_col:
         f"`{metadata.get('path', '')}` / Chunk {metadata.get('chunk_index', '')} / "
         f"source_type={metadata.get('source_type', '')}"
     )
-    st.metric("distance", format_number(selected["distance"]))
-    st.metric("score", format_number(selected["score"]))
+    st.caption(f"distance={format_number(selected['distance'])} / score={format_number(selected['score'])}")
     st.write(selected["document"])
 
 with graph_col:

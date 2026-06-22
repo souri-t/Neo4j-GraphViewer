@@ -77,6 +77,7 @@ def build_graph_html(graph_data: dict[str, list[dict[str, Any]]], height: str = 
                 },
                 "interaction": {
                     "hover": True,
+                    "dragNodes": False,
                     "tooltipDelay": 120,
                     "navigationButtons": True,
                 },
