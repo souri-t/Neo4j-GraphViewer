@@ -1,0 +1,110 @@
+# 社内ITヘルプデスク デモ用評価クエリ集
+
+このファイルは、社内ITヘルプデスクナレッジを検索・グラフビューで評価するためのクエリ集である。評価では top-3 以内に期待ファイルが入るか、関連ノードとして SSO、MFA、VPN、権限、セキュリティが自然につながるかを見る。
+
+## 1. ログイン・認証
+
+### Q01
+- query: `スマホを機種変更したらMFAが使えなくなった`
+- expected_primary_files:
+  - `03_sso_mfa_login.md`
+  - `04_password_account_lock.md`
+- checkpoints:
+  - 本人確認、一時アクセスパス、新端末での MFA 再登録に触れる
+
+### Q02
+- query: `パスワードを何度も間違えてログインできない`
+- expected_primary_files:
+  - `04_password_account_lock.md`
+  - `03_sso_mfa_login.md`
+- checkpoints:
+  - 5 回失敗、15 分ロック、本人確認、失敗ログの原因調査に触れる
+
+### Q03
+- query: `SSOには入れるが特定のSaaSだけ使えない`
+- expected_primary_files:
+  - `11_saas_account_requests.md`
+  - `03_sso_mfa_login.md`
+- checkpoints:
+  - SaaS 側のプロビジョニング、ライセンス、ロール不足を確認できる
+
+## 2. ネットワーク・端末
+
+### Q04
+- query: `外出先からVPNにつながらないときの確認手順`
+- expected_primary_files:
+  - `02_vpn_remote_access.md`
+  - `05_pc_setup_replacement.md`
+  - `03_sso_mfa_login.md`
+- checkpoints:
+  - 端末証明書、SSO、MFA、VPN クライアント、公共 Wi-Fi を確認できる
+
+### Q05
+- query: `社内Wi-Fiにはつながるが共有フォルダに入れない`
+- expected_primary_files:
+  - `08_wifi_network_troubleshooting.md`
+  - `06_file_share_permissions.md`
+- checkpoints:
+  - DNS、プロキシ、権限、資格情報キャッシュ、監査ログを確認できる
+
+### Q06
+- query: `PCを紛失したとき通常交換より先にやること`
+- expected_primary_files:
+  - `09_security_phishing_lost_device.md`
+  - `05_pc_setup_replacement.md`
+- checkpoints:
+  - 遠隔ロックまたはワイプ、パスワード変更、MFA、証明書失効に触れる
+
+## 3. 業務アプリ・権限
+
+### Q07
+- query: `共有フォルダの更新権限を追加したい`
+- expected_primary_files:
+  - `06_file_share_permissions.md`
+  - `10_joiner_mover_leaver.md`
+- checkpoints:
+  - フォルダオーナー承認、権限グループ、機密部門の追加承認に触れる
+
+### Q08
+- query: `退職者のアカウント停止で必要な作業は`
+- expected_primary_files:
+  - `10_joiner_mover_leaver.md`
+  - `11_saas_account_requests.md`
+  - `05_pc_setup_replacement.md`
+- checkpoints:
+  - SSO 無効化、端末回収、SaaS 停止、ライセンス回収、証明書失効に触れる
+
+### Q09
+- query: `メールは使えないがTeamsには入れる`
+- expected_primary_files:
+  - `07_m365_mail_teams_incidents.md`
+  - `03_sso_mfa_login.md`
+- checkpoints:
+  - Exchange ライセンス、メールボックス容量、Outlook プロファイルを確認できる
+
+## 4. 障害・セキュリティ
+
+### Q10
+- query: `フィッシングメールのリンクに認証情報を入力したかもしれない`
+- expected_primary_files:
+  - `09_security_phishing_lost_device.md`
+  - `12_incident_escalation_and_sla.md`
+- checkpoints:
+  - ネットワーク切断、パスワード変更、MFA セッション失効、EDR スキャンに触れる
+
+### Q11
+- query: `複数部署でVPNに同時接続できない`
+- expected_primary_files:
+  - `02_vpn_remote_access.md`
+  - `12_incident_escalation_and_sla.md`
+- checkpoints:
+  - VPN 装置障害、P1 または P2、影響範囲と開始時刻の共有に触れる
+
+### Q12
+- query: `Microsoft 365 の広域障害が疑われるときの案内方法`
+- expected_primary_files:
+  - `07_m365_mail_teams_incidents.md`
+  - `12_incident_escalation_and_sla.md`
+- checkpoints:
+  - サービス正常性、社内ポータル告知、一括回答、次回更新予定に触れる
+

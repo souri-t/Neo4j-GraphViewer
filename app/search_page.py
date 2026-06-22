@@ -2,10 +2,15 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from graph_view import build_graph_html, build_virtual_graph
-from ui_common import format_number, search_chunks, show_error
+from ui_common import format_number, get_chroma_client, search_chunks, show_error
 
 
 st.title("検索・仮想グラフビュー")
+
+try:
+    st.caption(f"現在のDB: `{get_chroma_client().describe_datasets()}`")
+except Exception:
+    st.caption("現在のDB: `取得できません`")
 
 query = st.text_input("検索文", placeholder="例: 憲法改正の議論、反乱軍の作戦")
 control_col, threshold_col = st.columns([1, 1])

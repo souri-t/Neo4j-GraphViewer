@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import streamlit as st
 
@@ -6,7 +7,28 @@ from ingest import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SEPARATOR_DISPLAY, DEFAU
 from ui_common import get_chroma_client, get_ollama_client, show_error
 
 
+def list_dataset_dirs(docs_root: Path) -> list[Path]:
+    if not docs_root.exists():
+        return []
+    return sorted((path for path in docs_root.iterdir() if path.is_dir()), key=lambda path: path.name)
+
+
 st.title("文書登録")
+
+docs_root = Path(os.getenv("DOCS_DIR", "/app/docs"))
+dataset_dirs = list_dataset_dirs(docs_root)
+dataset_names = [path.name for path in dataset_dirs]
+
+st.subheader("データセット")
+if dataset_names:
+    selected_dataset = st.selectbox("登録するデータセット", dataset_names)
+    selected_docs_dir = docs_root / selected_dataset
+else:
+    selected_dataset = ""
+    selected_docs_dir = docs_root
+    st.warning(f"`{docs_root}` 配下にデータセットフォルダが見つかりません。")
+
+db_status_placeholder = st.empty()
 
 st.subheader("チャンク設定")
 chunk_separator = st.text_input("チャンク区切り文字", value=DEFAULT_CHUNK_SEPARATOR_DISPLAY)
@@ -40,10 +62,12 @@ st.subheader("登録操作")
 action_col, reset_col, connection_col = st.columns([1, 1, 1])
 
 with action_col:
-    if st.button("文書を取り込む", type="primary", use_container_width=True):
-        with st.spinner("docs 配下の .txt / .md を読み込み、Embedding を ChromaDB に保存しています..."):
+    if st.button("文書を取り込む", type="primary", use_container_width=True, disabled=not bool(selected_dataset)):
+        with st.spinner(f"{selected_dataset} 配下の .md を読み込み、Embedding を ChromaDB に保存しています..."):
             try:
                 stats = ingest_docs(
+                    docs_dir=selected_docs_dir,
+                    dataset_name=selected_dataset,
                     reset=reset_before_ingest,
                     chunk_size=int(chunk_size),
                     chunk_overlap=int(chunk_overlap),
@@ -53,7 +77,7 @@ with action_col:
                 if reset_before_ingest:
                     st.session_state.pop("results", None)
                     st.session_state.pop("selected_index", None)
-                st.success(f"取り込み完了: {stats.documents} 文書 / {stats.chunks} チャンク")
+                st.success(f"取り込み完了: {selected_dataset} / {stats.documents} 文書 / {stats.chunks} チャンク")
             except Exception as exc:
                 show_error("文書取り込みに失敗しました。ChromaDB と Ollama の起動、embeddinggemma の pull 状態を確認してください。", exc)
 
@@ -82,3 +106,8 @@ st.caption(f"Ollama: `{os.getenv('OLLAMA_URL', 'http://ollama:11434')}`")
 st.caption(f"Embedding: `{os.getenv('EMBEDDING_MODEL', 'embeddinggemma')}`")
 st.caption(f"Collection: `{os.getenv('COLLECTION_NAME', 'document_chunks')}`")
 st.caption(f"Docs: `{os.getenv('DOCS_DIR', '/app/docs')}`")
+
+try:
+    db_status_placeholder.caption(f"現在のDB: `{get_chroma_client().describe_datasets()}`")
+except Exception as exc:
+    db_status_placeholder.caption("現在のDB: `取得できません`")

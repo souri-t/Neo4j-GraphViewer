@@ -8,7 +8,7 @@ from chroma_client import ChromaClient
 from ollama_client import OllamaClient
 
 
-SUPPORTED_EXTENSIONS = {".txt", ".md"}
+SUPPORTED_EXTENSIONS = {".md"}
 DEFAULT_CHUNK_SEPARATOR = "\n\n"
 DEFAULT_CHUNK_SEPARATOR_DISPLAY = "\\n\\n"
 DEFAULT_CHUNK_SIZE = 500
@@ -24,6 +24,7 @@ class IngestStats:
 
 def ingest_docs(
     docs_dir: str | Path | None = None,
+    dataset_name: str | None = None,
     reset: bool = False,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
@@ -33,7 +34,7 @@ def ingest_docs(
     docs_path = Path(docs_dir or os.getenv("DOCS_DIR", "/app/docs"))
     files = list_document_files(docs_path)
     if not files:
-        raise FileNotFoundError(f"No .txt or .md documents found under {docs_path}")
+        raise FileNotFoundError(f"No .md documents found under {docs_path}")
 
     ollama = OllamaClient()
     chroma = ChromaClient()
@@ -51,7 +52,8 @@ def ingest_docs(
             continue
 
         relative_path = str(path.relative_to(docs_path))
-        document_id = stable_id(relative_path)
+        stored_path = f"{dataset_name}/{relative_path}" if dataset_name else relative_path
+        document_id = stable_id(stored_path)
         title = derive_title(path, text)
         raw_chunks = chunk_text(
             text,
@@ -70,13 +72,14 @@ def ingest_docs(
         for index, (chunk, embedding) in enumerate(zip(raw_chunks, embeddings)):
             chunks.append(
                 {
-                    "id": stable_id(f"{relative_path}:{index}"),
+                    "id": stable_id(f"{stored_path}:{index}"),
                     "document": chunk,
                     "embedding": embedding,
                     "metadata": {
                         "document_id": document_id,
                         "title": title,
-                        "path": relative_path,
+                        "path": stored_path,
+                        "dataset": dataset_name or dataset_from_path(stored_path),
                         "chunk_index": index,
                         "source_type": path.suffix.lower().lstrip("."),
                         "chunk_separator": chunk_separator,
@@ -92,6 +95,10 @@ def ingest_docs(
         chunks_written += len(chunks)
 
     return IngestStats(documents=documents, chunks=chunks_written)
+
+
+def dataset_from_path(path: str) -> str:
+    return path.split("/", 1)[0] if "/" in path else ""
 
 
 def list_document_files(docs_path: Path) -> list[Path]:

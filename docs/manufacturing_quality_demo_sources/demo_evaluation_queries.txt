@@ -1,0 +1,93 @@
+# 製造業品質不具合対応 デモ用評価クエリ集
+
+このファイルは、QS-100 品質不具合対応ナレッジを検索・グラフビューで評価するためのクエリ集である。評価では top-3 以内に期待ファイルが入るか、周辺ノードとして原因、工程、是正処置がまとまるかを見る。
+
+## 1. 現象から原因を探す
+
+### Q01
+- query: `出荷後に温度が実際より高く出る原因を知りたい`
+- expected_primary_files:
+  - `02_failure_temperature_drift.md`
+  - `11_firmware_and_calibration_control.md`
+  - `08_process_final_test_and_aging.md`
+- checkpoints:
+  - 校正係数、ファームウェア 1.2.0、設置環境を確認できる
+
+### Q02
+- query: `フォークリフトが通る時間帯だけ無線データが欠測する`
+- expected_primary_files:
+  - `03_failure_wireless_disconnect.md`
+  - `09_customer_claims_field_returns.md`
+- checkpoints:
+  - RSSI、ノイズ、設置環境、電池電圧ログを確認できる
+
+### Q03
+- query: `電池を入れてもLEDがつかず起動しない`
+- expected_primary_files:
+  - `04_failure_power_no_boot.md`
+  - `05_supplier_lot_a23_capacitor_issue.md`
+  - `07_process_soldering_and_assembly.md`
+- checkpoints:
+  - 電池ホルダー、昇圧 IC、コンデンサ、はんだクラックを確認できる
+
+## 2. ロット・工程から調べる
+
+### Q04
+- query: `ロットA23の電源不良で実施した対策は`
+- expected_primary_files:
+  - `05_supplier_lot_a23_capacitor_issue.md`
+  - `10_corrective_actions_capa.md`
+  - `06_process_incoming_inspection.md`
+- checkpoints:
+  - 在庫隔離、代替部品、受入検査強化、負荷試験追加を説明できる
+
+### Q05
+- query: `アンテナコネクタの半挿しはどの不具合と関係するか`
+- expected_primary_files:
+  - `07_process_soldering_and_assembly.md`
+  - `03_failure_wireless_disconnect.md`
+- checkpoints:
+  - 無線通信切断、RSSI 急落、組立工程の確認に触れる
+
+### Q06
+- query: `校正ログが登録されていない製品を見つけるには`
+- expected_primary_files:
+  - `02_failure_temperature_drift.md`
+  - `08_process_final_test_and_aging.md`
+  - `11_firmware_and_calibration_control.md`
+- checkpoints:
+  - シリアル番号、校正係数、最終検査の空欄チェックに触れる
+
+## 3. 顧客対応・品質管理
+
+### Q07
+- query: `顧客から不具合連絡を受けた時に最初に集める情報は`
+- expected_primary_files:
+  - `09_customer_claims_field_returns.md`
+  - `12_traceability_and_escalation_flow.md`
+- checkpoints:
+  - 現象、日時、設置場所、シリアル番号、写真、ログを集める
+
+### Q08
+- query: `複数顧客へ波及しそうな不具合は誰に共有するか`
+- expected_primary_files:
+  - `12_traceability_and_escalation_flow.md`
+  - `10_corrective_actions_capa.md`
+- checkpoints:
+  - S2、品質保証責任者、製造責任者、営業責任者に触れる
+
+### Q09
+- query: `再発防止策の効果確認は何を見るべきか`
+- expected_primary_files:
+  - `10_corrective_actions_capa.md`
+- checkpoints:
+  - 3 ロット連続、工程内不良率、市場返却率、クレーム件数に触れる
+
+### Q10
+- query: `返却品で不具合が再現しない場合の確認観点`
+- expected_primary_files:
+  - `09_customer_claims_field_returns.md`
+  - `03_failure_wireless_disconnect.md`
+- checkpoints:
+  - 顧客環境、ゲートウェイ配置、金属棚、電波ノイズ、温度分布を確認できる
+

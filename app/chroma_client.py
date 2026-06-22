@@ -50,6 +50,33 @@ class ChromaClient:
             metadatas=[chunk["metadata"] for chunk in chunks],
         )
 
+    def describe_datasets(self) -> str:
+        datasets = self.list_datasets()
+        if not datasets:
+            return "未登録"
+        if len(datasets) == 1:
+            return datasets[0]
+        return f"複数: {', '.join(datasets)}"
+
+    def list_datasets(self, batch_size: int = 1000) -> list[str]:
+        collection = self.get_collection()
+        total = collection.count()
+        if total == 0:
+            return []
+
+        datasets: set[str] = set()
+        for offset in range(0, total, batch_size):
+            result = collection.get(
+                limit=batch_size,
+                offset=offset,
+                include=["metadatas"],
+            )
+            for metadata in result.get("metadatas") or []:
+                dataset = dataset_from_metadata(metadata or {})
+                if dataset:
+                    datasets.add(dataset)
+        return sorted(datasets)
+
     def query(self, embedding: List[float], top_k: int = 10) -> list[Dict[str, Any]]:
         collection = self.get_collection()
         result = collection.query(
@@ -78,6 +105,17 @@ class ChromaClient:
                 }
             )
         return rows
+
+
+def dataset_from_metadata(metadata: dict[str, Any]) -> str:
+    dataset = str(metadata.get("dataset") or "").strip()
+    if dataset:
+        return dataset
+
+    path = str(metadata.get("path") or "").strip()
+    if "/" not in path:
+        return ""
+    return path.split("/", 1)[0]
 
 
 def first_result(value):
